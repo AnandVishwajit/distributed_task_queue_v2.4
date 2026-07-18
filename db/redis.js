@@ -7,7 +7,6 @@ function createRedisClient() {
   return client;
 }
 
-// Queue names
 const QUEUES = {
   HIGH:   'queue:high',    // paid users
   NORMAL: 'queue:normal',  // free users
