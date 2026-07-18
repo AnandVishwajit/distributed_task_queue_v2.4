@@ -1,27 +1,13 @@
 #!/usr/bin/env node
-/**
- * load-test.js — Week 6: Distributed Task Queue Load Test
- *
- * Enqueues 1,000 jobs (mix of tiers + types), then polls until all are
- * done/failed, and prints a summary with resume-worthy throughput numbers.
- *
- * Usage:
- *   node load-test.js [--jobs 1000] [--concurrency 50] [--api http://localhost:3000]
- *
- * Requirements: api + worker must already be running.
- */
-
 "use strict";
 
-// ─── Config ──────────────────────────────────────────────────────────────────
-
 const DEFAULT_TOTAL     = 1_000;
-const DEFAULT_CONCUR    = 50;      // parallel POST requests during enqueue phase
+const DEFAULT_CONCUR    = 50;      
 const DEFAULT_API       = "http://localhost:3000";
-const POLL_INTERVAL_MS  = 2_000;   // how often to check completion
-const POLL_TIMEOUT_MS   = 5 * 60 * 1_000; // give up after 5 minutes
+const POLL_INTERVAL_MS  = 2_000;   
+const POLL_TIMEOUT_MS   = 5 * 60 * 1_000; 
 
-// Job mix — must add up to 100
+
 const JOB_MIX = [
   { type: "send_email",      tier: "paid", weight: 30 },
   { type: "resize_image",    tier: "paid", weight: 20 },
@@ -31,7 +17,6 @@ const JOB_MIX = [
   { type: "generate_report", tier: "free", weight: 10 },
 ];
 
-// ─── Arg parsing ─────────────────────────────────────────────────────────────
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -46,9 +31,6 @@ function parseArgs() {
   };
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/** Weighted random pick from JOB_MIX */
 function pickJob() {
   const total  = JOB_MIX.reduce((s, j) => s + j.weight, 0);
   let   rand   = Math.random() * total;
@@ -59,7 +41,7 @@ function pickJob() {
   return JOB_MIX[JOB_MIX.length - 1];
 }
 
-/** Build a realistic payload per job type */
+
 function buildPayload(type) {
   switch (type) {
     case "send_email":
@@ -86,7 +68,7 @@ function buildPayload(type) {
   }
 }
 
-/** POST a single job; returns the created job id */
+
 async function enqueueJob(apiBase, job) {
   const res = await fetch(`${apiBase}/jobs`, {
     method:  "POST",
@@ -104,7 +86,7 @@ async function enqueueJob(apiBase, job) {
   return data.id ?? data.job?.id;
 }
 
-/** Run `fn` up to `concurrency` times in parallel over `items` */
+
 async function pMap(items, concurrency, fn) {
   const results = [];
   let   idx     = 0;
@@ -120,17 +102,17 @@ async function pMap(items, concurrency, fn) {
   return results;
 }
 
-/** GET /stats — returns the raw stats object */
+
 async function fetchStats(apiBase) {
   const res = await fetch(`${apiBase}/stats`);
   if (!res.ok) throw new Error(`GET /stats failed: ${res.status}`);
   return res.json();
 }
 
-/** Pretty-print a number with commas */
+
 const fmt = (n) => Number(n).toLocaleString("en-US", { maximumFractionDigits: 2 });
 
-/** ms → human-readable */
+
 function fmtDuration(ms) {
   if (ms < 1_000)  return `${ms}ms`;
   if (ms < 60_000) return `${(ms / 1_000).toFixed(2)}s`;
@@ -139,7 +121,7 @@ function fmtDuration(ms) {
   return `${m}m ${s}s`;
 }
 
-/** Print a simple progress bar */
+
 function progressBar(done, total, width = 40) {
   const pct   = done / total;
   const filled = Math.round(pct * width);
@@ -147,12 +129,12 @@ function progressBar(done, total, width = 40) {
   return `[${bar}] ${(pct * 100).toFixed(1)}%`;
 }
 
-// ─── Main ────────────────────────────────────────────────────────────────────
+
 
 async function main() {
   const { total, concurrency, apiBase } = parseArgs();
 
-  // Make sure crypto is available (Node 19+ has it global; older needs import)
+
   if (typeof crypto === "undefined") {
     const { webcrypto } = await import("node:crypto");
     global.crypto = webcrypto;
@@ -170,10 +152,10 @@ async function main() {
   }
   console.log();
 
-  // ── Phase 1: Enqueue ──────────────────────────────────────────────────────
+
   console.log("── Phase 1: Enqueueing jobs ─────────────────────────────\n");
 
-  // Snapshot stats before we start so we can account for pre-existing jobs
+
   let statsBefore;
   try {
     statsBefore = await fetchStats(apiBase);
@@ -189,7 +171,7 @@ async function main() {
   const enqueueStart = Date.now();
 
   process.stdout.write("  Progress: ");
-  const TICK = Math.max(1, Math.floor(total / 50)); // update bar every ~2%
+  const TICK = Math.max(1, Math.floor(total / 50)); 
 
   await pMap(jobs, concurrency, async (job, i) => {
     try {
@@ -212,7 +194,7 @@ async function main() {
   console.log(`  Duration    : ${fmtDuration(enqueueElapsed)}`);
   console.log(`  Throughput  : ${fmt(enqueueRate)} enqueues/sec\n`);
 
-  // ── Phase 2: Wait for completion ─────────────────────────────────────────
+
   console.log("── Phase 2: Waiting for workers to process jobs ─────────\n");
 
   const processStart = Date.now();
@@ -222,15 +204,14 @@ async function main() {
   let lastPollTime  = processStart;
   let peakRate      = 0;
   let pollCount     = 0;
-  const snapshots   = []; // { t, done, processing, failed }
+  const snapshots   = []; 
 
-  // Helper: extract counts from the actual stats shape:
-  // { queues: { high, normal, delayed, dead }, jobs: { done }, ts }
+
   const getDone       = (s) => s?.jobs?.done       ?? s?.done       ?? 0;
   const getFailed     = (s) => s?.jobs?.failed      ?? s?.failed     ?? 0;
   const getProcessing = (s) => (s?.queues?.high ?? 0) + (s?.queues?.normal ?? 0);
 
-  // We track only the jobs WE enqueued; compare against stats delta
+
   const baselineDone   = getDone(statsBefore);
   const baselineFailed = getFailed(statsBefore);
 
@@ -283,7 +264,7 @@ async function main() {
   const overallRate      = (finalDone / (processElapsed / 1_000)).toFixed(1);
   const e2eElapsed       = processEnd - enqueueStart;
 
-  // Throughput percentiles from snapshots (job/s per interval)
+
   const rates = snapshots
     .map((s, i) => {
       if (i === 0) return 0;
@@ -297,7 +278,7 @@ async function main() {
   const p50 = rates[Math.floor(rates.length * 0.50)]?.toFixed(1) ?? "—";
   const p95 = rates[Math.floor(rates.length * 0.95)]?.toFixed(1) ?? "—";
 
-  // ── Summary ───────────────────────────────────────────────────────────────
+
   console.log("\n╔══════════════════════════════════════════════════════╗");
   console.log("║                   LOAD TEST SUMMARY                 ║");
   console.log("╚══════════════════════════════════════════════════════╝\n");
@@ -324,7 +305,7 @@ async function main() {
   console.log(`  │  e2e throughput     : ${((enqueuedIds.length / (e2eElapsed / 1_000)).toFixed(1) + " jobs/sec").padEnd(28)}│`);
   console.log("  └──────────────────────────────────────────────────┘\n");
 
-  // Resume-ready one-liner
+  
   const successPct = ((finalDone / enqueuedIds.length) * 100).toFixed(1);
   console.log("  ★  Resume bullet:");
   console.log(`     "Processed ${fmt(enqueuedIds.length)} jobs in ${fmtDuration(e2eElapsed)} ` +
