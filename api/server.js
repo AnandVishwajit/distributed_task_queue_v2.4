@@ -15,7 +15,6 @@ app.use(require('cors')());
 
 const redis = createRedisClient();
 
-// --- WebSocket broadcast --------------------------------------------------
 
 const clients = new Set();
 
@@ -23,7 +22,6 @@ wss.on('connection', (ws) => {
   clients.add(ws);
   console.log(`[ws] client connected (total: ${clients.size})`);
 
-  // Send current stats immediately on connect
   getStats().then(stats => safeSend(ws, { type: 'stats', data: stats }));
 
   ws.on('close', () => {
@@ -45,14 +43,12 @@ function broadcast(payload) {
   }
 }
 
-// Push fresh stats to all connected dashboards every 2 seconds
 setInterval(async () => {
   if (!clients.size) return;
   const stats = await getStats();
   broadcast({ type: 'stats', data: stats });
 }, 2000);
 
-// --- Stats helper ---------------------------------------------------------
 
 async function getStats() {
   const [statusRows, highLen, normalLen, delayedLen, deadLen] = await Promise.all([
@@ -73,9 +69,7 @@ async function getStats() {
   };
 }
 
-// --- REST routes ----------------------------------------------------------
 
-// POST /jobs
 app.post('/jobs', async (req, res) => {
   const { type, payload = {}, tier = 'free', run_at } = req.body;
   if (!type) return res.status(400).json({ error: 'type is required' });
@@ -103,14 +97,13 @@ app.post('/jobs', async (req, res) => {
   res.status(201).json(job);
 });
 
-// GET /jobs/:id
 app.get('/jobs/:id', async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
   if (!rows.length) return res.status(404).json({ error: 'not found' });
   res.json(rows[0]);
 });
 
-// GET /jobs
+
 app.get('/jobs', async (req, res) => {
   const { status, tier, limit = 50 } = req.query;
   const conditions = [], values = [];
@@ -124,15 +117,14 @@ app.get('/jobs', async (req, res) => {
   res.json(rows);
 });
 
-// GET /stats
+
 app.get('/stats', async (req, res) => {
   res.json(await getStats());
 });
 
-// --- Start ----------------------------------------------------------------
+
 
 async function start() {
-  // cors package may not be installed yet — graceful fallback
   try { require('cors'); } catch {
     app.use((req, res, next) => {
       res.header('Access-Control-Allow-Origin', '*');
