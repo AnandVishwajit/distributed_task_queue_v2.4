@@ -6,15 +6,13 @@ const { createRedisClient, QUEUES } = require('../db/redis');
 const handlers = require('./handlers');
 require('dotenv').config();
 
-// How many concurrent worker loops to run in this process.
-// Set WORKER_CONCURRENCY=4 in .env or environment to change.
+
 const CONCURRENCY   = parseInt(process.env.WORKER_CONCURRENCY || '2', 10);
 const POLL_INTERVAL = 500;
 const LEASE_TTL     = 30;
 const REAP_INTERVAL = 10000;
 
-// One shared Redis client for the reaper + delayed promoter.
-// Each worker loop gets its own client so they don't block each other.
+
 const sharedRedis = createRedisClient();
 
 const luaScript = fs.readFileSync(path.join(__dirname, 'lease.lua'), 'utf8');
@@ -25,7 +23,7 @@ function makeRedisClient() {
   return client;
 }
 
-// Exponential backoff with ±20% jitter
+
 function backoffMs(attempt) {
   const base   = Math.pow(2, attempt) * 1000;
   const jitter = base * 0.2 * (Math.random() * 2 - 1);
@@ -36,7 +34,7 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Promote delayed jobs whose run_at has arrived into the right priority queue
+
 async function promoteDelayedJobs() {
   const now = Date.now();
   const ids  = await sharedRedis.zrangebyscore('queue:delayed', '-inf', now);
@@ -53,7 +51,7 @@ async function promoteDelayedJobs() {
   }
 }
 
-// Reaper: re-queue jobs whose lease has expired (worker crashed)
+
 async function reapExpiredLeases() {
   const ids = await sharedRedis.lrange('queue:processing', 0, -1);
   if (!ids.length) return;
@@ -146,7 +144,7 @@ async function processJob(redis, workerId, id) {
   }
 }
 
-// One worker loop — each runs independently in its own async loop
+
 async function workerLoop(index) {
   const workerId = `worker-${index}:${uuidv4().slice(0, 8)}`;
   const redis    = makeRedisClient();
@@ -177,11 +175,11 @@ async function start() {
 
   console.log(`[worker] starting ${CONCURRENCY} concurrent loops`);
 
-  // Delayed promoter + reaper run on shared intervals
+
   setInterval(promoteDelayedJobs, 1000);
   setInterval(reapExpiredLeases,  REAP_INTERVAL);
 
-  // Kick off all worker loops concurrently — they run forever in parallel
+
   await Promise.all(
     Array.from({ length: CONCURRENCY }, (_, i) => workerLoop(i + 1))
   );
